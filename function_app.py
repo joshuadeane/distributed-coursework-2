@@ -1,25 +1,45 @@
 import azure.functions as func
-import logging
+import random
+import pyodbc
+import os
+import json
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 @app.route(route="task1")
 def task1(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Python HTTP trigger function processed a request.')
+    readings = []
+    for sensor_id in range(1, 21):
+        reading = {
+            "sensor_id": sensor_id,
+            "temp": random.randint(5, 18),
+            "wind": random.randint(12, 24),
+            "humidity": random.randint(30, 60),
+            "co2": random.randint(400, 1600)
+        }
+        readings.append(reading)
 
-    name = req.params.get('name')
-    if not name:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            name = req_body.get('name')
+    try:
+        connection = pyodbc.connect(os.environ["SqlConnectionString"])
+        cursor = connection.cursor()
 
-    if name:
-        return func.HttpResponse(f"Hello, {name}. This HTTP triggered function executed successfully.")
-    else:
+        for r in readings:
+            cursor.execute(
+                """
+                INSERT INTO dbo.readings (sensor_id, temp, wind, humidity, co2)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (r["sensor_id"], r["temp"], r["wind"], r["humidity"], r["co2"])
+            )
+
+        connection.commit()
+        cursor.close()
+        connection.close()
+
         return func.HttpResponse(
-             "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response.",
-             status_code=200
+            json.dumps({"message": "Data added", "data": readings}),
+            mimetype="application/json"
         )
+
+    except Exception as e:
+        return func.HttpResponse(f"Database error: {e}")
